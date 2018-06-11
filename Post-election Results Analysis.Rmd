@@ -147,10 +147,10 @@ kable(t(summary.df), "html", digits = 2) %>%
   column_spec(5, background = "blue", color = "white", bold = T)
 ```
 
-It can be seen that on average, ridings won by the PC have lower population density, and higher incomes than ridings won by the NDP but lower than Liberal and the single Green riding. In terms of percentage of government transfer payments, again only NDP ridings on average have a higher value than PC ridings. 
+It can be seen that on average, ridings won by the PC have lower population density, and higher incomes than ridings won by the NDP but lower than Liberal and the single Green riding. In terms of percentage of government transfer payments, again only NDP ridings on average have a higher value than PC ridings. PC ridings on average pay a lower share of income in taxes compared to Liberal and Green ridings, and have the lowest proportion of population living in low incomes.
 
-Visualize with boxplots:
-```{r}
+The distributions are interesting as well. These can be visualized by means of box-plots or a variation thereof. In this case, I use violing plots, which are basically a density distribution for each class.
+```{r create-plots, echo=FALSE}
 pop_density <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = Winner, y = `Population Density`, fill = Winner)) + 
   geom_violin( ) + geom_jitter(height = 0, width = 0.05 ) +
   scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
@@ -176,8 +176,10 @@ prop_bachelor <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = 
   scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
 ```
 
-Render:
-```{r}
+```{r render-plots, echo=FALSE}
 grid.arrange(pop_density, median_age, median_income, avg_income_tax_rate, pct_pop_low_income, prop_bachelor, ncol = 2)
 ```
 
+The story that this quick data analysis tells is interesting. Liberal and Green ridings tend to be more affluent and educated, and pay a somewhat higher share of their incomes in taxes.
+
+PC ridings are on average not very disimilar, however, the spread of their socio-economic and demographic attributes is quite large. This suggest broad appeal across the socio-economic spectrum, with two notable exceptions: PC ridings tend to be older and lower density.
