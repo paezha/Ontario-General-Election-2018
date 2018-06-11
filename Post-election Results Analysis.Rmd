@@ -1,0 +1,183 @@
+---
+title: "Ontario General Election 2018"
+author: "Antonio Paez"
+date: "June 11, 2018"
+output: html_document
+---
+
+```{r setup, echo = FALSE, message = FALSE, warning=FALSE}
+library(readxl)
+library(tidyverse)
+library(rgdal)
+library(spdep)
+library(rgeos)
+library(dplyr)
+library(tmap)
+library(kableExtra)
+library(formattable)
+library(nnet)
+library(gridExtra)
+```
+
+```{r load-ridings, echo = FALSE, message = FALSE, warning=FALSE}
+ridings <- readOGR(".", "Ridings", verbose = FALSE)
+```
+
+```{r load-election-data, echo = FALSE, message = FALSE, warning=FALSE}
+results <- read_excel("Unofficial Results (Ryan McGreal).xlsx")
+results <- rename(results, ED_NAME_EN = Riding)
+results$ED_NAME_EN <- ridings$ED_NAME_EN
+```
+
+```{r join-election-to-geography, echo = FALSE, message = FALSE, warning=FALSE}
+ridings@data <- left_join(ridings@data, results, by = "ED_NAME_EN")
+```
+
+```{r read-census-data, echo = FALSE, message = FALSE, warning=FALSE}
+data <- read_excel("Ridings-Census Subdivisions-Overlay-Data.xlsx")
+data$ED_NAME_EN <- ridings$ED_NAME_EN
+```
+
+```{r select-census-variables, echo = FALSE, message = FALSE, warning=FALSE}
+data <- transmute(data, ED_NAME_EN, 
+                  Population, `Population Density` = `Avg Pop Density`,
+                  `Median Age` = `Avg Median Age`,
+                  `Median Income` = `Avg Median income`, `Male Median Income` = `Avg Male_Median income`, `Female Median Income` = `Avg Female_Median income`,
+                  `Pct Government Transfer Payments` = `Avg Government transfer payments %`,
+                  `Median Commuting Duration` = `Avg Median commuting duration`,
+                  `Avg Income Taxes as Pct Income` = `Avg Income taxes as % of total income`,
+                  `Pct Population in Low Income` = `Avg Population in low income %`,
+                  `Population 25-64`,
+                  `25-64_No certificate/diploma/degree`,
+                  `25-64_HS diploma/equivalent`,
+                  `25-64_Post HS diploma`,
+                  `25-64_Apprentice/trades certificate`,
+                  `25-64_College certificate/diploma`,
+                  `25-64_University <bachelor's`,
+                  `25-64_University bachelor's+`,
+                  `25-64_University_Bachelor's degree`,
+                  `25-64_University_Above bachelor's`
+                  )
+```
+
+```{r transform-census-variables, echo = FALSE, message = FALSE, warning=FALSE}
+data.model <- mutate(data,
+                     `Prop no certificate/diploma/degree` = `25-64_No certificate/diploma/degree`/`Population 25-64`,
+                     `Prop HS diploma/equivalent` = `25-64_HS diploma/equivalent`/`Population 25-64`,
+                     `Prop Post HS diploma` = `25-64_Post HS diploma`/`Population 25-64`,
+                     `Prop apprentice/trades certificate` = `25-64_Apprentice/trades certificate`/`Population 25-64`,
+                     `Prop college certificate/diploma` = `25-64_College certificate/diploma`/`Population 25-64`,
+                     `Prop university bachelor` = `25-64_University_Bachelor's degree`/`Population 25-64`,
+                     `Prop postgraduate` = `25-64_University_Above bachelor's`/`Population 25-64`)
+```
+
+Join results dataframe to spatial polygons:
+```{r join-census-to-geography, echo = FALSE, message = FALSE, warning=FALSE}
+ridings@data <- left_join(ridings@data, data.model, by = "ED_NAME_EN")
+```
+
+```{r convert-outcome-to-factor, echo = FALSE, message = FALSE, warning=FALSE}
+ridings$Winner <- factor(ridings$Winner)
+ridings$Winner <- relevel(ridings$Winner, ref = "Liberal")
+```
+## Ontario General Election 2018
+
+The 2018 general election in Ontario was held on June 31st, with special/advanced polling weeks in advance.
+
+The election was characterized by a strong disaffection of the incumbent government (Liberal), and perhaps particularly Premier Wynne. On the other hand, Ontario Progressive Conservatives were rocked by scandals, including the resignation of the previous leader Patrick Brown, and the election of a well-known fire-breathing populist, Doug Ford, as the new leader.
+
+Polling in advance of the election suggested that the election was the PCs to lose. Somewhat more surprisingly, the NDP rose from a distant third, to match the PC in a statistical deadheat in the popular preferences [see here](https://newsinteractives.cbc.ca/onvotes/poll-tracker/). The electoral system in Ontario, however, is not proportional representation. Instead, the Premier is the leader of the party that can form a majority government (most MPPs elected) or a workin minority government. This means that individual votes may have no impact at all, depending on where they are cast.
+
+My personal political inclinations are fairly progressive. I have voted for the Liberals at the federal and provincial level. This time I voted NDP, seeing as the Liberals would probably be wiped out. The results of the election were disappointing, if hardly surprising. Electing a politician on the mould of Trump (ill-informed, willfully ignorant, plagued by scandal, and willing to say and do anything to acquire power) is a sad development for the province, in my view.
+
+So how does a highbrow professional data analyst deal with disappointment? By using data to try to understand the story.
+
+I obtained the geography file of Polling Divisions in Ontario from [here](https://www.elections.on.ca/en/voting-in-ontario/electoral-district-shapefiles/limited-use-data-product-licence-agreement/download-shapefiles.html).
+
+The official results of the election may not be announced in weeks. Unofficial (and effectively final) information was collected by Ryan McGreal [here](https://quandyfactory.com/blog/201/unofficial_ontario_2018_election_riding_by_riding_summary_table
+), so I used this one for a quick analysis.
+
+In addition to the geography and unofficial results, I also retrieved some census variables that I thought might help to tell a story. These variables were for Census Subdivisions, which I converted to the ridings by aggregation (e.g., total population, number of people by degrees), or obtaining the means (of the median income, for instance).
+
+## Geography of the results
+
+A useful first step in data analysis is to map the results. The map below shows the party that won each riding.
+
+Pat DeLuca at McMaster University has a really neat [map](https://mcmaster.maps.arcgis.com/apps/StorytellingSwipe/index.html?appid=7b915811943e4e4cba7ab4803ce5a2cd) that tells the before-after of the election. It can be seen there that the Liberals were effectively wiped out. The PC won most of Southern Ontario outside of major urban centers. The NDP won most of Northern Ontario, and most urban centers (also see map below).
+
+```{r map-winner, echo = FALSE, message = FALSE, warning=FALSE}
+tmap_mode("view")
+#qtm(ridings, fill = "Winner")
+pal1 <- c("red", "green", "orange", "blue")
+tm_shape(ridings) + tm_polygons("Winner", palette = pal1)
+```
+
+# Socio-economic and demographic characteristics of ridings by winner
+
+The map suggests a geographical polarization of the results. But is a similar phenomenon present in the socio-economic and demographic dimensions?
+
+The following table shows the mean values of the variables for the group of ridings won by each party.
+
+```{r group-by-winner, echo=FALSE}
+by_winner <- group_by(ridings@data, Winner)
+```
+
+```{r create-summary-table, echo=FALSE}
+#Summarize by outcome
+summary.df <- summarise(by_winner, `Population Density` = mean(`Population Density`), 
+          `Median Income` = mean(`Median Income`), `Male Median Income` = mean(`Male Median Income`), `Female Median Income` = mean(`Female Median Income`),
+          `Pct Government Transfer Payments` = mean(`Pct Government Transfer Payments`), 
+          `Avg Income Taxes as Pct Income` = mean(`Avg Income Taxes as Pct Income`), 
+          `Pct Population in Low Income` = mean(`Pct Population in Low Income`), 
+          `Prop no certificate/diploma/degree` = mean(`Prop no certificate/diploma/degree`),
+          `Prop HS diploma/equivalent` = mean(`Prop HS diploma/equivalent`),
+          `Prop Post HS diploma` = mean(`Prop Post HS diploma`),
+          `Prop apprentice/trades certificate` = mean(`Prop apprentice/trades certificate`),
+          `Prop college certificate/diploma` = mean(`Prop college certificate/diploma`),
+          `Prop university bachelor` = mean(`Prop university bachelor`),
+          `Prop postgraduate` = mean(`Prop postgraduate`))
+```
+
+```{r render-table, echo=FALSE}
+kable(t(summary.df), "html", digits = 2) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  column_spec(2, background = "red", color = "white", bold = T) %>%
+  column_spec(3, background = "green", color = "white", bold = T) %>%
+  column_spec(4, background = "orange", color = "white", bold = T) %>%
+  column_spec(5, background = "blue", color = "white", bold = T)
+```
+
+It can be seen that on average, ridings won by the PC have lower population density, and higher incomes than ridings won by the NDP but lower than Liberal and the single Green riding. In terms of percentage of government transfer payments, again only NDP ridings on average have a higher value than PC ridings. 
+
+Visualize with boxplots:
+```{r}
+pop_density <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = Winner, y = `Population Density`, fill = Winner)) + 
+  geom_violin( ) + geom_jitter(height = 0, width = 0.05 ) +
+  scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
+
+median_age <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = Winner, y = `Median Age`, fill = Winner)) +
+  geom_violin( ) + geom_jitter(height = 0, width = 0.05 ) +
+  scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
+
+median_income <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = Winner, y = `Median Income`, fill = Winner)) +   
+  geom_violin( ) + geom_jitter(height = 0, width = 0.05 ) +
+  scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
+
+avg_income_tax_rate <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = Winner, y = `Avg Income Taxes as Pct Income`, fill = Winner)) +   
+  geom_violin( ) + geom_jitter(height = 0, width = 0.05 ) +
+  scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
+
+pct_pop_low_income <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = Winner, y = `Pct Population in Low Income`, fill = Winner)) +   
+  geom_violin( ) + geom_jitter(height = 0, width = 0.05 ) +
+  scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
+
+prop_bachelor <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = Winner, y = `Prop university bachelor`, fill = Winner)) +   
+  geom_violin( ) + geom_jitter(height = 0, width = 0.05 ) +
+  scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
+```
+
+Render:
+```{r}
+grid.arrange(pop_density, median_age, median_income, avg_income_tax_rate, pct_pop_low_income, prop_bachelor, ncol = 2)
+```
+

@@ -1,0 +1,165 @@
+---
+title: "Ontario Election 2018"
+author: "Author"
+date: "June 8, 2018"
+output: html_document
+---
+
+Clear workspace:
+```{r}
+rm(list = ls())
+```
+
+
+```{r libraries, include=FALSE}
+library(readxl)
+library(tidyverse)
+library(rgdal)
+library(spdep)
+library(rgeos)
+library(dplyr)
+library(tmap)
+library(nnet)
+library(gridExtra)
+```
+
+Load data:
+```{r}
+ridings <- readOGR(".", "Ridings")
+```
+
+Read election results data file:
+```{r}
+results <- read_excel("Unofficial Results (Ryan McGreal).xlsx")
+results <- rename(results, ED_NAME_EN = Riding)
+results$ED_NAME_EN <- ridings$ED_NAME_EN
+```
+
+Join results dataframe to spatial polygons:
+```{r}
+ridings@data <- left_join(ridings@data, results, by = "ED_NAME_EN")
+```
+
+Read census data:
+```{r}
+data <- read_excel("Ridings-Census Subdivisions-Overlay-Data.xlsx")
+data$ED_NAME_EN <- ridings$ED_NAME_EN
+```
+
+Select variables of interest:
+```{r}
+data <- transmute(data, ED_NAME_EN, 
+                  Population, `Population Density` = `Avg Pop Density`,
+                  `Median Age` = `Avg Median Age`,
+                  `Median Income` = `Avg Median income`, `Male Median Income` = `Avg Male_Median income`, `Female Median Income` = `Avg Female_Median income`,
+                  `Pct Government Transfer Payments` = `Avg Government transfer payments %`,
+                  `Median Commuting Duration` = `Avg Median commuting duration`,
+                  `Avg Income Taxes as Pct Income` = `Avg Income taxes as % of total income`,
+                  `Pct Population in Low Income` = `Avg Population in low income %`,
+                  `Population 25-64`,
+                  `25-64_No certificate/diploma/degree`,
+                  `25-64_HS diploma/equivalent`,
+                  `25-64_Post HS diploma`,
+                  `25-64_Apprentice/trades certificate`,
+                  `25-64_College certificate/diploma`,
+                  `25-64_University <bachelor's`,
+                  `25-64_University bachelor's+`,
+                  `25-64_University_Bachelor's degree`,
+                  `25-64_University_Above bachelor's`
+                  )
+```
+
+```{r}
+data.model <- mutate(data,
+                     `Prop no certificate/diploma/degree` = `25-64_No certificate/diploma/degree`/`Population 25-64`,
+                     `Prop HS diploma/equivalent` = `25-64_HS diploma/equivalent`/`Population 25-64`,
+                     `Prop Post HS diploma` = `25-64_Post HS diploma`/`Population 25-64`,
+                     `Prop apprentice/trades certificate` = `25-64_Apprentice/trades certificate`/`Population 25-64`,
+                     `Prop college certificate/diploma` = `25-64_College certificate/diploma`/`Population 25-64`,
+                     `Prop university bachelor` = `25-64_University_Bachelor's degree`/`Population 25-64`,
+                     `Prop postgraduate` = `25-64_University_Above bachelor's`/`Population 25-64`)
+```
+
+Join results dataframe to spatial polygons:
+```{r}
+ridings@data <- left_join(ridings@data, data.model, by = "ED_NAME_EN")
+```
+
+Convert outcome to factor:
+```{r}
+ridings$Winner <- factor(ridings$Winner)
+ridings$Winner <- relevel(ridings$Winner, ref = "Liberal")
+```
+
+Map results:
+```{r}
+tmap_mode("view")
+qtm(ridings, fill = "Winner")
+```
+
+Multinomial logistic model:
+```{r}
+mod1 <- multinom(Winner ~ `Population Density` + `Median Age` +
+                   `Male Median Income` + `Female Median Income` + `Pct Government Transfer Payments` + `Avg Income Taxes as Pct Income` + `Pct Population in Low Income` +
+                   `Median Commuting Duration` +
+                   `Prop HS diploma/equivalent` + `Prop university bachelor` + `Prop postgraduate`, data = ridings@data, maxit = 1000)
+```
+
+Results model:
+```{r}
+summary(mod1)
+```
+
+Group by outcome:
+```{r}
+by_winner <- group_by(ridings@data, Winner)
+```
+
+Summarize by outcome:
+```{r}
+summarise(by_winner, `Total Population` = sum(Population), `Population Density` = mean(`Population Density`), 
+          `Median Income` = mean(`Median Income`), `Male Median Income` = mean(`Male Median Income`), `Female Median Income` = mean(`Female Median Income`),
+          `Pct Government Transfer Payments` = mean(`Pct Government Transfer Payments`), 
+          `Avg Income Taxes as Pct Income` = mean(`Avg Income Taxes as Pct Income`), 
+          `Pct Population in Low Income` = mean(`Pct Population in Low Income`), 
+          `Prop no certificate/diploma/degree` = mean(`Prop no certificate/diploma/degree`),
+          `Prop HS diploma/equivalent` = mean(`Prop HS diploma/equivalent`),
+          `Prop Post HS diploma` = mean(`Prop Post HS diploma`),
+          `Prop apprentice/trades certificate` = mean(`Prop apprentice/trades certificate`),
+          `Prop college certificate/diploma` = mean(`Prop college certificate/diploma`),
+          `Prop university bachelor` = mean(`Prop university bachelor`),
+          `Prop postgraduate` = mean(`Prop postgraduate`))
+```
+
+Visualize with boxplots:
+```{r}
+pop_density <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = Winner, y = `Population Density`, fill = Winner)) + 
+  geom_violin( ) + geom_jitter(height = 0, width = 0.05 ) +
+  scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
+
+median_age <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = Winner, y = `Median Age`, fill = Winner)) +
+  geom_violin( ) + geom_jitter(height = 0, width = 0.05 ) +
+  scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
+
+median_income <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = Winner, y = `Median Income`, fill = Winner)) +   
+  geom_violin( ) + geom_jitter(height = 0, width = 0.05 ) +
+  scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
+
+avg_income_tax_rate <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = Winner, y = `Avg Income Taxes as Pct Income`, fill = Winner)) +   
+  geom_violin( ) + geom_jitter(height = 0, width = 0.05 ) +
+  scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
+
+pct_pop_low_income <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = Winner, y = `Pct Population in Low Income`, fill = Winner)) +   
+  geom_violin( ) + geom_jitter(height = 0, width = 0.05 ) +
+  scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
+
+prop_bachelor <- ggplot(data = filter(ridings@data, Winner != "Green"), aes(x = Winner, y = `Prop university bachelor`, fill = Winner)) +   
+  geom_violin( ) + geom_jitter(height = 0, width = 0.05 ) +
+  scale_fill_manual(values=c("red", "orange", "green", "blue")) + theme_classic()
+```
+
+Render:
+```{r}
+grid.arrange(pop_density, median_age, median_income, avg_income_tax_rate, pct_pop_low_income, prop_bachelor, ncol = 2)
+```
+
